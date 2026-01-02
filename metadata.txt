@@ -1,0 +1,29 @@
+[general]
+name=GeoCroissant Tools
+qgisMinimumVersion=3.0
+qgisMaximumVersion=3.99
+description=Load and visualize GeoCroissant ML-ready geospatial datasets in QGIS
+
+version=0.1.0
+author=Harsh Shinde
+email=harshinde.hks@gmail.com
+
+about=GeoCroissant Tools provides access to ML-ready geospatial datasets using the GeoCroissant metadata format. Features:
+    - Load GeoCroissant JSON metadata
+    - Visualize dataset extents and tiles
+    - Load Cloud-Optimized GeoTIFFs (COGs)
+    - View training data as point layers
+
+tracker=https://github.com/HarshShinde0/geocroissant-qgis-plugin/issues
+repository=https://github.com/HarshShinde0/geocroissant-qgis-plugin.git
+help=https://github.com/HarshShinde0/geocroissant-qgis-plugin#readme
+
+homepage=https://github.com/HarshShinde0/geocroissant-qgis-plugin
+category=Web
+icon=gui/img/geocr.jpg
+experimental=True
+hasProcessingProvider=no
+
+deprecated=False
+
+tags=geospatial,machine learning,ML,croissant,STAC,COG,remote sensing,satellite,dataset

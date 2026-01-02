@@ -1,0 +1,28 @@
+name: Testing
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  test_3_16:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Run test 3.16
+      run: |
+        docker run -v ${GITHUB_WORKSPACE}:/src -w /src qgis/qgis:release-3_16 sh -c 'apt-get -y update && apt-get -y install xvfb && pip install -U pytest && xvfb-run -a pytest tests/'
+  test_3_22:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Run test 3.22
+      run: |
+        docker run -v ${GITHUB_WORKSPACE}:/src -w /src qgis/qgis:release-3_22 sh -c 'apt-get -y update && apt-get -y install xvfb && export DISPLAY=:0.0 && pip install -U pytest && xvfb-run -a pytest tests/'
+  test_latest:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Run test latest
+      run: |
+        docker run -v ${GITHUB_WORKSPACE}:/src -w /src qgis/qgis:latest sh -c 'apt-get -y update && apt-get -y install xvfb && export PYTHONPATH=/usr/share/qgis/python && apt install -y python3-pytest && xvfb-run -a pytest tests/'
