@@ -44,11 +44,11 @@ from qgis.core import (
 )
 from qgis.gui import QgisInterface
 
-from GeoCroissantTools import PLUGIN_NAME, __version__, __email__, __web__, __help__
+from GeoCroissantTools import PLUGIN_NAME, __version__, __email__, __web__, __help__, __author__
 from GeoCroissantTools.utils import gui_utils
 from GeoCroissantTools.core.geocroissant_parser import GeoCroissantParser
-from GeoCroissantTools.core.layer_builder import TileLayerBuilder, BboxLayerBuilder
-from GeoCroissantTools.core.data_loader import COGLoader, CSVLoader
+from GeoCroissantTools.core.layer_builder import BboxLayerBuilder
+from GeoCroissantTools.core.data_loader import COGLoader, CSVLoader, NetCDFLoader
 
 
 def on_help_click() -> None:
@@ -69,7 +69,7 @@ def on_about_click(parent) -> None:
         f"• Load Cloud-Optimized GeoTIFFs (COGs)<br>"
         f"• View training data as point layers<br>"
         f"<br>"
-        f"Author: MLCommons GeoCroissant Team<br>"
+        f"Author: {__author__}<br>"
         f'Email: <a href="mailto:{__email__}">{__email__}</a><br>'
         f'Web: <a href="{__web__}">{__web__}</a><br>'
         f"Version: {__version__}",
@@ -272,8 +272,8 @@ class GeoCroissantDialog(QWidget):
         self.tabs.addTab(info_tab, "Info")
 
         # --- Tiles Tab ---
-        tiles_tab = QWidget()
-        tiles_layout = QVBoxLayout(tiles_tab)
+        self.tiles_tab = QWidget()
+        tiles_layout = QVBoxLayout(self.tiles_tab)
 
         self.tiles_list = QListWidget()
         self.tiles_list.itemDoubleClicked.connect(self._on_tile_double_click)
@@ -283,23 +283,18 @@ class GeoCroissantDialog(QWidget):
         self.btn_show_tiles.clicked.connect(self._on_show_tiles_click)
         self.btn_show_tiles.setEnabled(False)
 
-        self.btn_load_selected_cog = QPushButton("Load COG")
-        self.btn_load_selected_cog.clicked.connect(self._on_load_cog_click)
-        self.btn_load_selected_cog.setEnabled(False)
-
-        self.btn_load_selected_csv = QPushButton("Load CSV")
-        self.btn_load_selected_csv.clicked.connect(self._on_load_csv_click)
-        self.btn_load_selected_csv.setEnabled(False)
+        self.btn_load_tile = QPushButton("Load Tile")
+        self.btn_load_tile.clicked.connect(self._on_load_tile_click)
+        self.btn_load_tile.setEnabled(False)
 
         tiles_btn_layout.addWidget(self.btn_show_tiles)
-        tiles_btn_layout.addWidget(self.btn_load_selected_cog)
-        tiles_btn_layout.addWidget(self.btn_load_selected_csv)
+        tiles_btn_layout.addWidget(self.btn_load_tile)
 
         tiles_layout.addWidget(QLabel("Tiles (double-click to zoom):"))
         tiles_layout.addWidget(self.tiles_list)
         tiles_layout.addLayout(tiles_btn_layout)
 
-        self.tabs.addTab(tiles_tab, "Tiles")
+        self.tabs.addTab(self.tiles_tab, "Tiles")
 
         # --- Files Tab ---
         files_tab = QWidget()
@@ -315,19 +310,21 @@ class GeoCroissantDialog(QWidget):
         files_layout.addWidget(QLabel("Distribution Files (double-click to load):"))
         files_layout.addWidget(self.files_table)
 
+        # Load buttons
+        files_btn_layout = QHBoxLayout()
+        self.btn_load_selected_cog = QPushButton("Load COG")
+        self.btn_load_selected_cog.clicked.connect(self._on_load_cog_click)
+        self.btn_load_selected_cog.setEnabled(False)
+
+        self.btn_load_selected_csv = QPushButton("Load CSV")
+        self.btn_load_selected_csv.clicked.connect(self._on_load_csv_click)
+        self.btn_load_selected_csv.setEnabled(False)
+
+        files_btn_layout.addWidget(self.btn_load_selected_cog)
+        files_btn_layout.addWidget(self.btn_load_selected_csv)
+        files_layout.addLayout(files_btn_layout)
+
         self.tabs.addTab(files_tab, "Files")
-
-        # --- References Tab ---
-        refs_tab = QWidget()
-        refs_layout = QVBoxLayout(refs_tab)
-
-        self.refs_list = QListWidget()
-        self.refs_list.itemDoubleClicked.connect(self._on_ref_double_click)
-
-        refs_layout.addWidget(QLabel("References (double-click to open):"))
-        refs_layout.addWidget(self.refs_list)
-
-        self.tabs.addTab(refs_tab, "References")
 
         main_layout.addWidget(self.tabs, 1)
 
@@ -346,27 +343,47 @@ class GeoCroissantDialog(QWidget):
             self._load_geocroissant(file_path)
 
     def _load_geocroissant(self, file_path: str) -> None:
-        """Load and parse a GeoCroissant JSON file."""
+        """Load and parse a metadata file (any supported format)."""
         try:
             self.parser = GeoCroissantParser(file_path)
             self.geocroissant_data = self.parser.data
             self.current_file_path = file_path
 
             # Update UI
-            self.lbl_file.setText(os.path.basename(file_path))
+            file_name = os.path.basename(file_path)
+            metadata_format = self.parser.get_format()
+            self.lbl_file.setText(f"{file_name} ({metadata_format})")
+            
             self._populate_info()
             self._populate_tiles()
             self._populate_files()
-            self._populate_references()
+
+            # Conditionally enable Tiles tab based on dataset type
+            dataset_type = self.parser.get_dataset_type()
+            is_tile_based = dataset_type == "tiles"
+            
+            self.tiles_tab.setEnabled(is_tile_based)
+            if not is_tile_based:
+                self.tiles_list.clear()
+                msg = "This dataset contains files. Use the Files tab to load data."
+                
+                # Specific message for CMR-UMM format
+                if metadata_format == "cmr_umm":
+                    msg = "CMR-UMM format detected. View available assets in the Files tab."
+                
+                self.tiles_list.addItem(QListWidgetItem(msg))
 
             # Enable buttons
             self.btn_show_bbox.setEnabled(True)
             self.btn_zoom_extent.setEnabled(True)
-            self.btn_show_tiles.setEnabled(True)
+            self.btn_show_tiles.setEnabled(is_tile_based)
+            self.btn_load_tile.setEnabled(is_tile_based)
 
+            # Show success message with format info
+            success_msg = f"Loaded: {self.parser.get_name()} ({metadata_format.upper()})"
             self._iface.messageBar().pushMessage(
                 PLUGIN_NAME,
-                f"Loaded: {self.parser.get_name()}",
+                success_msg,
                 level=Qgis.MessageLevel.Success,
                 duration=3,
             )
@@ -375,22 +392,31 @@ class GeoCroissantDialog(QWidget):
             QMessageBox.critical(
                 self,
                 "Error Loading File",
-                f"Failed to load GeoCroissant file:\n{str(e)}",
+                f"Failed to load metadata file:\n{str(e)}",
             )
 
     def _populate_info(self) -> None:
-        """Populate the info table with dataset metadata."""
+        """Populate the info table with dataset metadata dynamically."""
         if not self.parser:
             return
 
+        # Get metadata format
+        metadata_format = self.parser.get_format()
+        
+        # Get all dynamic metadata
+        all_metadata = self.parser.get_all_metadata()
+        
+        # Create info items list with basic info
         info_items = [
+            ("Format", metadata_format.upper()),
             ("Name", self.parser.get_name()),
-            ("Version", self.parser.get_version()),
-            ("License", self.parser.get_license()),
-            ("Conforms To", self.parser.data.get("conformsTo", "-")),
-            ("Date Published", self.parser.data.get("datePublished", "-")),
-            ("Items Count", str(self.parser.get_item_count())),
+            ("Description", self.parser.get_description()[:100] or "-"),
         ]
+        
+        # Add dynamic metadata
+        for key, value in all_metadata:
+            if value and value != "-":
+                info_items.append((key, str(value)[:100]))
 
         self.info_table.setRowCount(len(info_items))
         for i, (key, value) in enumerate(info_items):
@@ -403,20 +429,25 @@ class GeoCroissantDialog(QWidget):
         bbox = self.parser.get_bounding_box()
         if bbox:
             self.lbl_bbox.setText(
-                f"Bounding Box: [{bbox[0]:.2f}, {bbox[1]:.2f}, {bbox[2]:.2f}, {bbox[3]:.2f}]"
+                f"Bounding Box: [{bbox[0]:.4f}, {bbox[1]:.4f}, {bbox[2]:.4f}, {bbox[3]:.4f}]"
             )
         else:
             self.lbl_bbox.setText("Bounding Box: -")
 
-        self.lbl_crs.setText(f"CRS: {self.parser.get_crs()}")
+        crs = self.parser.get_crs()
+        self.lbl_crs.setText(f"CRS: {crs}")
+        
+        resolution = self.parser.get_spatial_resolution()
         self.lbl_resolution.setText(
-            f"Resolution: {self.parser.get_spatial_resolution()}"
+            f"Resolution: {resolution}" if resolution else "Resolution: Unknown"
         )
 
         temporal = self.parser.get_temporal_extent()
         if temporal:
+            start = temporal.get('startDate') or temporal.get('start', '?')
+            end = temporal.get('endDate') or temporal.get('end', '?')
             self.lbl_temporal.setText(
-                f"Temporal: {temporal.get('startDate', '?')} → {temporal.get('endDate', '?')}"
+                f"Temporal: {start} → {end}"
             )
         else:
             self.lbl_temporal.setText("Temporal: -")
@@ -429,12 +460,12 @@ class GeoCroissantDialog(QWidget):
             return
 
         items = self.parser.get_items()
-        for item in items:
+        for idx, item in enumerate(items, 1):
             item_id = item.get("id", "Unknown")
             bbox = item.get("bbox", [])
             bbox_str = f" [{bbox[0]:.1f}, {bbox[1]:.1f}]" if len(bbox) >= 2 else ""
 
-            list_item = QListWidgetItem(f"{item_id}{bbox_str}")
+            list_item = QListWidgetItem(f"{idx}. {item_id}{bbox_str}")
             list_item.setData(Qt.UserRole, item)
             self.tiles_list.addItem(list_item)
 
@@ -442,42 +473,38 @@ class GeoCroissantDialog(QWidget):
         self.btn_load_selected_csv.setEnabled(len(items) > 0)
 
     def _populate_files(self) -> None:
-        """Populate the files table from distribution."""
+        """Populate the files table from any format dynamically."""
         self.files_table.setRowCount(0)
 
         if not self.parser:
             return
 
-        files = self.parser.get_distribution_files()
-        self.files_table.setRowCount(len(files))
+        # Get assets from detector - works with any format
+        assets = self.parser.get_assets()
+        
+        if not assets:
+            # Fallback to distribution files if no assets found
+            assets = self.parser.get_distribution_files()
+        
+        self.files_table.setRowCount(len(assets))
 
-        for i, file_obj in enumerate(files):
-            name = file_obj.get("name", file_obj.get("@id", "Unknown"))
-            encoding = file_obj.get("encodingFormat", "Unknown")
-            url = file_obj.get("contentUrl", "-")
+        for i, asset in enumerate(assets):
+            # Handle both asset and file object formats
+            name = asset.get("title") or asset.get("name") or asset.get("@id") or "Unknown"
+            file_type = asset.get("media_type") or asset.get("encodingFormat") or asset.get("description") or "Unknown"
+            url = asset.get("url") or asset.get("contentUrl") or "-"
 
+            # Display name
             self.files_table.setItem(i, 0, QTableWidgetItem(name))
-            self.files_table.setItem(i, 1, QTableWidgetItem(encoding))
+            
+            # File type
+            self.files_table.setItem(i, 1, QTableWidgetItem(file_type))
 
-            url_item = QTableWidgetItem(url[:60] + "..." if len(url) > 60 else url)
-            url_item.setData(Qt.UserRole, file_obj)
+            # URL (truncated for display)
+            url_display = url[:60] + "..." if len(url) > 60 else url
+            url_item = QTableWidgetItem(url_display)
+            url_item.setData(Qt.UserRole, asset)
             self.files_table.setItem(i, 2, url_item)
-
-    def _populate_references(self) -> None:
-        """Populate the references list."""
-        self.refs_list.clear()
-
-        if not self.parser:
-            return
-
-        refs = self.parser.get_references()
-        for ref in refs:
-            name = ref.get("name", "Unknown")
-            url = ref.get("url", "")
-
-            list_item = QListWidgetItem(f"{name}: {url}")
-            list_item.setData(Qt.UserRole, ref)
-            self.refs_list.addItem(list_item)
 
     def _on_show_bbox_click(self) -> None:
         """Show the dataset bounding box on the map."""
@@ -519,7 +546,7 @@ class GeoCroissantDialog(QWidget):
         self.canvas.refresh()
 
     def _on_show_tiles_click(self) -> None:
-        """Show all tiles as a vector layer."""
+        """Load all tile COG images."""
         if not self.parser:
             return
 
@@ -530,18 +557,41 @@ class GeoCroissantDialog(QWidget):
             )
             return
 
-        crs = self.parser.get_crs()
-        builder = TileLayerBuilder(items, crs, self.parser.get_name())
-        self.tiles_layer = builder.create_layer()
+        loaded_count = 0
+        failed_count = 0
 
-        if self.tiles_layer:
-            self.project.addMapLayer(self.tiles_layer)
-            self._iface.messageBar().pushMessage(
-                PLUGIN_NAME,
-                f"Added {len(items)} tiles",
-                level=Qgis.MessageLevel.Info,
-                duration=2,
-            )
+        for item in items:
+            tile_id = item.get("id", "")
+            
+            # Find matching COG file
+            cog_file = self.parser.find_distribution_file(tile_id, "cog")
+            if not cog_file:
+                cog_file = self.parser.find_distribution_file(tile_id, ".tif")
+
+            if cog_file:
+                url = cog_file.get("contentUrl", "")
+                loader = COGLoader(url, tile_id)
+                layer = loader.load()
+
+                if layer and layer.isValid():
+                    self.project.addMapLayer(layer)
+                    loaded_count += 1
+                else:
+                    failed_count += 1
+            else:
+                failed_count += 1
+
+        # Show summary message
+        message = f"Loaded {loaded_count} tiles"
+        if failed_count > 0:
+            message += f" ({failed_count} failed)"
+        
+        self._iface.messageBar().pushMessage(
+            PLUGIN_NAME,
+            message,
+            level=Qgis.MessageLevel.Success if loaded_count > 0 else Qgis.MessageLevel.Warning,
+            duration=3,
+        )
 
     def _on_tile_double_click(self, item: QListWidgetItem) -> None:
         """Zoom to a specific tile."""
@@ -554,6 +604,54 @@ class GeoCroissantDialog(QWidget):
             rect = QgsRectangle(bbox[0], bbox[1], bbox[2], bbox[3])
             self.canvas.setExtent(rect)
             self.canvas.refresh()
+
+    def _on_load_tile_click(self) -> None:
+        """Load COG for selected tile and zoom to it."""
+        current_item = self.tiles_list.currentItem()
+        if not current_item or not self.parser:
+            return
+
+        tile_data = current_item.data(Qt.UserRole)
+        tile_id = tile_data.get("id", "")
+
+        # Find matching COG file
+        cog_file = self.parser.find_distribution_file(tile_id, "cog")
+        if not cog_file:
+            cog_file = self.parser.find_distribution_file(tile_id, ".tif")
+
+        if cog_file:
+            url = cog_file.get("contentUrl", "")
+            loader = COGLoader(url, tile_id)
+            layer = loader.load()
+
+            if layer and layer.isValid():
+                self.project.addMapLayer(layer)
+                
+                # Zoom to the loaded layer
+                extent = layer.extent()
+                self.canvas.setExtent(extent)
+                self.canvas.refresh()
+                
+                self._iface.messageBar().pushMessage(
+                    PLUGIN_NAME,
+                    f"Loaded tile: {tile_id}",
+                    level=Qgis.MessageLevel.Success,
+                    duration=3,
+                )
+            else:
+                self._iface.messageBar().pushMessage(
+                    PLUGIN_NAME,
+                    f"Failed to load tile: {tile_id}",
+                    level=Qgis.MessageLevel.Warning,
+                    duration=3,
+                )
+        else:
+            self._iface.messageBar().pushMessage(
+                PLUGIN_NAME,
+                f"No COG file found for tile: {tile_id}",
+                level=Qgis.MessageLevel.Warning,
+                duration=3,
+            )
 
     def _on_load_cog_click(self) -> None:
         """Load COG for selected tile."""
@@ -576,6 +674,12 @@ class GeoCroissantDialog(QWidget):
 
             if layer and layer.isValid():
                 self.project.addMapLayer(layer)
+                
+                # Zoom to the loaded layer
+                extent = layer.extent()
+                self.canvas.setExtent(extent)
+                self.canvas.refresh()
+                
                 self._iface.messageBar().pushMessage(
                     PLUGIN_NAME,
                     f"Loaded COG: {tile_id}",
@@ -610,6 +714,12 @@ class GeoCroissantDialog(QWidget):
 
             if layer and layer.isValid():
                 self.project.addMapLayer(layer)
+                
+                # Zoom to the loaded layer
+                extent = layer.extent()
+                self.canvas.setExtent(extent)
+                self.canvas.refresh()
+                
                 self._iface.messageBar().pushMessage(
                     PLUGIN_NAME,
                     f"Loaded CSV: {tile_id}",
@@ -645,18 +755,27 @@ class GeoCroissantDialog(QWidget):
             layer = loader.load()
             if layer and layer.isValid():
                 self.project.addMapLayer(layer)
+                self._iface.mapCanvas().setExtent(layer.extent())
         elif "csv" in encoding.lower():
             loader = CSVLoader(url, name)
             layer = loader.load()
             if layer and layer.isValid():
                 self.project.addMapLayer(layer)
+                self._iface.mapCanvas().setExtent(layer.extent())
+        elif "netcdf" in encoding.lower():
+            loader = NetCDFLoader(url, name)
+            layer = loader.load()
+            if layer and layer.isValid():
+                self.project.addMapLayer(layer)
+                self._iface.mapCanvas().setExtent(layer.extent())
+            else:
+                QMessageBox.warning(
+                    self,
+                    "NetCDF Loading",
+                    f"Could not load NetCDF file. File may need to be opened manually in QGIS.\n"
+                    f"URL: {url}"
+                )
         else:
             webbrowser.open(url)
 
-    def _on_ref_double_click(self, item: QListWidgetItem) -> None:
-        """Open a reference URL in browser."""
-        ref_data = item.data(Qt.UserRole)
-        if ref_data:
-            url = ref_data.get("url", "")
-            if url:
-                webbrowser.open(url)
+

@@ -2,46 +2,73 @@
 """
 GeoCroissant JSON Parser
 
-Parses GeoCroissant metadata files and extracts relevant information
-for visualization and data loading in QGIS.
+Parses various metadata formats (GeoCroissant, NASA CMR-UMM, STAC, etc)
+and extracts relevant information for visualization and data loading in QGIS.
 """
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+from .metadata_detector import MetadataDetector, MetadataFormat
 
 
 class GeoCroissantParser:
-    """Parser for GeoCroissant JSON metadata files."""
+    """Parser for various geospatial metadata formats."""
 
     def __init__(self, file_path: str) -> None:
         """
-        Initialize parser with a GeoCroissant JSON file.
+        Initialize parser with a metadata JSON file.
 
-        :param file_path: Path to the GeoCroissant JSON file
+        Automatically detects format (GeoCroissant, CMR-UMM, STAC, etc)
+
+        :param file_path: Path to the metadata JSON file
         """
         self.file_path = file_path
         self.data: Dict[str, Any] = {}
+        self.detector: Optional[MetadataDetector] = None
         self._load()
 
     def _load(self) -> None:
         """Load and parse the JSON file."""
-        with open(self.file_path, "r", encoding="utf-8") as f:
-            self.data = json.load(f)
+        try:
+            with open(self.file_path, "r", encoding="utf-8") as f:
+                self.data = json.load(f)
+            
+            # Initialize detector for format-agnostic parsing
+            self.detector = MetadataDetector(self.data)
+        except Exception as e:
+            print(f"Error loading file {self.file_path}: {e}")
+            self.detector = None
 
     def get_name(self) -> str:
         """Get dataset name."""
+        try:
+            if self.detector:
+                name = self.detector.get_name()
+                if name and name != "Unknown Dataset":
+                    return name
+        except Exception as e:
+            print(f"Error getting name from detector: {e}")
+        
+        # Fallback approaches
         return self.data.get("name", "Unknown Dataset")
 
     def get_version(self) -> str:
         """Get dataset version."""
-        return self.data.get("version", "1.0.0")
+        if self.detector and self.detector.format == MetadataFormat.GEOCROISSANT:
+            return self.data.get("version", "1.0.0")
+        return "1.0.0"
 
     def get_license(self) -> str:
         """Get dataset license."""
-        return self.data.get("license", "Unknown")
+        if self.detector and self.detector.format == MetadataFormat.GEOCROISSANT:
+            return self.data.get("license", "Unknown")
+        return "Unknown"
 
     def get_description(self) -> str:
         """Get dataset description."""
+        if self.detector:
+            return self.detector.get_description()
         return self.data.get("description", "")
 
     def get_bounding_box(self) -> Optional[List[float]]:
@@ -50,6 +77,12 @@ class GeoCroissantParser:
 
         :returns: List [west, south, east, north] or None
         """
+        if self.detector:
+            extent = self.detector.get_spatial_extent()
+            if extent:
+                return [extent["west"], extent["south"], extent["east"], extent["north"]]
+        
+        # Fallback to old format
         bbox = self.data.get("geocr:BoundingBox")
         if bbox and len(bbox) >= 4:
             return bbox[:4]
@@ -61,14 +94,32 @@ class GeoCroissantParser:
 
         :returns: Dict with startDate and endDate, or None
         """
+        if self.detector:
+            temporal = self.detector.get_temporal_extent()
+            if temporal:
+                # Normalize keys
+                return {
+                    "startDate": temporal.get("start", ""),
+                    "endDate": temporal.get("end", ""),
+                }
+        
         return self.data.get("geocr:temporalExtent")
 
     def get_spatial_resolution(self) -> str:
         """Get spatial resolution."""
+        if self.detector:
+            resolution = self.detector.get_spatial_resolution()
+            if resolution:
+                return resolution
         return self.data.get("geocr:spatialResolution", "Unknown")
 
     def get_crs(self) -> str:
         """Get coordinate reference system."""
+        if self.detector:
+            crs = self.detector.get_crs()
+            if crs and crs != "EPSG:4326":
+                return crs
+        
         return self.data.get("geocr:coordinateReferenceSystem", "EPSG:4326")
 
     def get_distribution_files(self) -> List[Dict[str, Any]]:
@@ -145,6 +196,18 @@ class GeoCroissantParser:
         """Get the number of items."""
         return len(self.get_items())
 
+    def get_dataset_type(self) -> str:
+        """
+        Detect dataset type based on structure.
+
+        :returns: "tiles" if recordSet contains data items, "files" otherwise
+        """
+        record_sets = self.get_record_sets()
+        for record_set in record_sets:
+            if record_set.get("data"):
+                return "tiles"
+        return "files"
+
     def get_references(self) -> List[Dict[str, Any]]:
         """
         Get all reference links.
@@ -169,15 +232,29 @@ class GeoCroissantParser:
             file_id = file_obj.get("@id", "")
             file_name = file_obj.get("name", "")
             content_url = file_obj.get("contentUrl", "")
+            encoding_format = file_obj.get("encodingFormat", "")
 
             # Check if item_id is in the file identifier
             if item_id in file_id or item_id in file_name or item_id in content_url:
-                # Check file type match
-                if file_type.lower() in file_id.lower():
+                # Check file type match - try multiple variations
+                file_type_lower = file_type.lower()
+                
+                # Direct checks
+                if file_type_lower in file_id.lower():
                     return file_obj
-                if file_type.lower() in file_name.lower():
+                if file_type_lower in file_name.lower():
                     return file_obj
-                if file_type.lower() in content_url.lower():
+                if file_type_lower in content_url.lower():
+                    return file_obj
+                
+                # Check encoding format for CSV
+                if file_type_lower == "csv" and "text/csv" in encoding_format.lower():
+                    return file_obj
+                if file_type_lower == "csv" and ".csv" in content_url.lower():
+                    return file_obj
+                
+                # Check for COG/TIF variations
+                if file_type_lower in ["cog", ".tif", "tif"] and ("cog" in file_id.lower() or ".tif" in content_url.lower() or "geotiff" in encoding_format.lower()):
                     return file_obj
 
         return None
@@ -209,3 +286,50 @@ class GeoCroissantParser:
     def to_dict(self) -> Dict[str, Any]:
         """Return the raw data dictionary."""
         return self.data
+
+    def get_format(self) -> str:
+        """
+        Get detected metadata format.
+
+        :returns: Format name (geocroissant, cmr_umm, stac, generic)
+        """
+        if self.detector:
+            return self.detector.format.value
+        return "unknown"
+
+    def get_assets(self) -> List[Dict[str, Any]]:
+        """
+        Get all available assets dynamically.
+
+        Works with any supported format.
+
+        :returns: List of asset dictionaries with url, name, type
+        """
+        if self.detector:
+            return self.detector.get_assets()
+        
+        # Fallback
+        distribution = self.data.get("distribution", [])
+        return [d for d in distribution if d.get("@type") == "cr:FileObject"]
+
+    def get_downloadable_files(self) -> List[Dict[str, str]]:
+        """
+        Get all downloadable file URLs from any format.
+
+        :returns: List of dicts with 'url', 'name', 'type'
+        """
+        if self.detector:
+            return self.detector.get_download_urls()
+        
+        return []
+
+    def get_all_metadata(self) -> List[Tuple[str, str]]:
+        """
+        Get all metadata items from detector.
+
+        :returns: List of (key, value) tuples
+        """
+        if self.detector:
+            return self.detector.get_metadata_items()
+        
+        return []

@@ -12,14 +12,12 @@ import tempfile
 import unittest
 import sys
 
-# Add the core directory directly to avoid importing core/__init__.py
-core_dir = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "core"
-)
-sys.path.insert(0, core_dir)
+# Add parent directory to path
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, parent_dir)
 
-# Import parser module directly (without going through core/__init__.py)
-from geocroissant_parser import GeoCroissantParser  # noqa: E402
+# Import from the parent package
+from core.geocroissant_parser import GeoCroissantParser  # noqa: E402
 
 
 class TestGeoCroissantParser(unittest.TestCase):

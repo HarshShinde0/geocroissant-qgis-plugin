@@ -4,7 +4,7 @@ qgisMinimumVersion=3.0
 qgisMaximumVersion=3.99
 description=Load and visualize GeoCroissant ML-ready geospatial datasets in QGIS
 
-version=0.1.0
+version=0.1.1
 author=Harsh Shinde
 email=harshinde.hks@gmail.com
 
