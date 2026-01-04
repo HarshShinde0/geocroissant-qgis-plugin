@@ -62,3 +62,8 @@ GitHub: [@HarshShinde0](https://github.com/HarshShinde0)
 
 - **Repository**: https://github.com/HarshShinde0/geocroissant-qgis-plugin
 - **Issue Tracker**: https://github.com/HarshShinde0/geocroissant-qgis-plugin/issues
+
+
+## ⭐ Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=HarshShinde0/geocroissant-qgis-plugin&type=Date)](https://www.star-history.com/#HarshShinde0/geocroissant-qgis-plugin&Date)
